@@ -10,15 +10,15 @@
 
 This library provides a complete userspace driver for the **LDT LD7138**, a 128(RGB)×128 pixel 65K-color OLED display controller/driver IC. The library uses Linux's `spidev` kernel driver for SPI communication and `libgpiod` for GPIO control, enabling display operation entirely from userspace without requiring a custom kernel module.
 
-**Part of:** [AESD Final Project - LD7138 OLED Driver](https://github.com/cu-ecen-aeld/final-project-assignment-jordankooyman)
+**Part of:** [AESD Final Project - LD7138 OLED Driver](https://github.com/cu-ecen-aeld/final-project-jordankooyman)
 
 ## Features (Planned)
 
-- ✅ **Full LD7138 initialization** - Hardware reset, oscillator config, power-on sequence
-- ✅ **RGB565 framebuffer** - Software 128×128×16bpp framebuffer with efficient bulk writes
-- ✅ **Graphics primitives** - Fill screen, draw pixel, draw rectangle
-- ✅ **Portable architecture** - Clean HAL boundary allows porting to Arduino/ESP32
-- ✅ **No kernel dependencies** - Uses standard `spidev` and `libgpiod` interfaces
+- **Full LD7138 initialization** - Hardware reset, oscillator config, power-on sequence
+- **RGB565 framebuffer** - Software 128×128×16bpp framebuffer with efficient bulk writes
+- **Graphics primitives** - Fill screen, draw pixel, draw rectangle
+- **Portable architecture** - Clean HAL boundary allows porting to Arduino/ESP32
+- **No kernel dependencies** - Uses standard `spidev` and `libgpiod` interfaces
 
 ## Hardware Support
 
@@ -57,21 +57,9 @@ ld7138-userspace-driver/
     └── test_colors.c            # Solid color fill test
 ```
 
-## Quick Start
+## Quick Start (To Be Updated)
 
 ### 1. Hardware Wiring
-
-Connect the LD7138 to Raspberry Pi 4B SPI0:
-
-| RPi4B Pin | GPIO | Function | LD7138 Pin |
-|-----------|------|----------|------------|
-| 19        | GPIO10 | MOSI   | SDA (D1)   |
-| 23        | GPIO11 | SCLK   | SCL (D0)   |
-| 24        | GPIO8  | CE0    | CSB        |
-| 22        | GPIO25 | GPIO   | A0 (D/C)   |
-| 18        | GPIO24 | GPIO   | RSTB       |
-| 1         | 3.3V   | Power  | VDD        |
-| 6         | GND    | Ground | VSSD       |
 
 See [`docs/wiring.md`](docs/wiring.md) for complete pinout and power supply details.
 
@@ -129,7 +117,7 @@ sudo ./demo
 # Demo running...
 ```
 
-## API Usage
+## API Usage (To Be Updated)
 
 ### Basic Example
 
@@ -174,11 +162,11 @@ void gfx_draw_rect(int x, int y, int w, int h, uint16_t color);
 #define RGB565(r, g, b) (((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3))
 ```
 
-## Cross-Compilation for Buildroot
+## Cross-Compilation for Buildroot (To Be Updated)
 
 This library is packaged as a Buildroot external package. See the main project repository for build instructions:
 
-[buildroot-external/package/ld7138/](https://github.com/cu-ecen-aeld/final-project-assignment-jordankooyman/tree/main/buildroot-external/package/ld7138)
+[buildroot-external/package/ld7138/](https://github.com/cu-ecen-aeld/final-project-jordankooyman/tree/main/buildroot-external/package/ld7138)
 
 ## Architecture
 
@@ -204,7 +192,7 @@ The library uses a three-layer architecture for portability:
 
 Only `ld7138_spi_linux.c` is platform-specific. To port to Arduino/ESP32, replace this file with an equivalent implementation for that platform's SPI and GPIO APIs.
 
-## Troubleshooting
+## Troubleshooting (To Be Updated)
 
 ### Display shows nothing / stays dark
 
@@ -229,17 +217,7 @@ Only `ld7138_spi_linux.c` is platform-specific. To port to Arduino/ESP32, replac
 
 ## Development Status
 
-| Sprint | Status | Completion |
-|--------|--------|------------|
-| Sprint 1 | In Progress | ▓░░░░░░░░░░ 10% |
-| Sprint 2 | Planned | ░░░░░░░░░░ 0% |
-| Sprint 3 | Planned | ░░░░░░░░░░ 0% |
-
-See the [Project Schedule](https://github.com/cu-ecen-aeld/final-project-assignment-jordankooyman/wiki/Schedule) for detailed task breakdown.
-
-## Contributing
-
-This is a solo course project and is not accepting external contributions. However, feedback and bug reports are welcome via [Issues](https://github.com/jordankooyman/ld7138-userspace-driver/issues).
+See [Project Board](https://github.com/users/jordankooyman/projects/1) for detailed task breakdown
 
 ## References
 
@@ -247,15 +225,9 @@ This is a solo course project and is not accepting external contributions. Howev
 - [Linux spidev Documentation](https://www.kernel.org/doc/Documentation/spi/spidev)
 - [libgpiod Documentation](https://git.kernel.org/pub/scm/libs/libgpiod/libgpiod.git/about/)
 
-## License
-
-This project is submitted as coursework for ECEN 5713, University of Colorado Boulder. See course policies for usage terms.
-
 ## AI Assistance Disclosure
 
-AI tools (Claude by Anthropic) were used in planning this project's architecture and drafting documentation. All code implementation is original work. See the [AI Assistance Log](https://github.com/cu-ecen-aeld/final-project-assignment-jordankooyman/wiki/Project-Overview#ai-assistance-log) for conversation links.
-
----
+AI tools (Claude by Anthropic) were used in planning this project's architecture and drafting documentation. All code implementation is original work. See the [AI Assistance Log](https://github.com/cu-ecen-aeld/final-project-jordankooyman/wiki/Project-Overview#ai-assistance-log) for conversation links.
 
 **Author:** Jordan Kooyman ([@jordankooyman](https://github.com/jordankooyman))  
 **Last Updated:** March 9, 2026
