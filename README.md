@@ -224,6 +224,8 @@ See [Project Board](https://github.com/users/jordankooyman/projects/1) for detai
 - [LD7138 Datasheet](docs/LD7138_datasheet.pdf) - LDT Inc., Version 1.3
 - [Linux spidev Documentation](https://www.kernel.org/doc/Documentation/spi/spidev)
 - [libgpiod Documentation](https://git.kernel.org/pub/scm/libs/libgpiod/libgpiod.git/about/)
+- [Display Diagrams](https://www.ebay.com/itm/157532824487)
+- [Display Circuit/Block Diagrams](https://www.aliexpress.us/item/3256809750824353.html)
 
 ## AI Assistance Disclosure
 
