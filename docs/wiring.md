@@ -24,7 +24,7 @@ generate one. Without VCC_C at 8–20V the column driver is completely inoperati
 display will show nothing regardless of correct SPI communication.
 
 **Current status:** VCC_C is supplied by an MT3608 boost converter module, powered from
-the Raspberry Pi's 5V rail and adjusted to **14.8V** output. This is within the datasheet
+the Raspberry Pi's 5V rail and adjusted to **16.0V** output. This is within the datasheet
 operating range (8–20V) and provides adequate headroom for the internal row regulator.
 
 ### VCC_R (Row Driver Power)
