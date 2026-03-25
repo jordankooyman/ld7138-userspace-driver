@@ -2,7 +2,7 @@
 
 **Status:** Initial bring-up wiring — assembled on breadboard.
 **Formal schematic:** Pending (hand-drawn sketch exists; KiCad schematic TBD).
-**Last updated:** 2026-03-25
+**Last updated:** 2026-03-25 (Rev 0.3)
 
 ---
 
@@ -23,10 +23,9 @@ is a decoupling capacitor only — it stabilizes a supply you must provide; it d
 generate one. Without VCC_C at 8–20V the column driver is completely inoperative and the
 display will show nothing regardless of correct SPI communication.
 
-**Current status:** VCC_C supply source not yet confirmed. An external boost converter
-(e.g. MT3608, XL6009, or equivalent) converting 5V → 12–16V is required.
-Target voltage: **16V** (matching the seller reference schematic and nominal datasheet
-operating conditions).
+**Current status:** VCC_C is supplied by an MT3608 boost converter module, powered from
+the Raspberry Pi's 5V rail and adjusted to **14.8V** output. This is within the datasheet
+operating range (8–20V) and provides adequate headroom for the internal row regulator.
 
 ### VCC_R (Row Driver Power)
 
@@ -51,8 +50,10 @@ uniformity.
 
 The datasheet uses `R/G/BPRE = 0V` for all electrical measurements, meaning 0V (GND
 direct, no Zener) is a fully valid operating condition — the display functions correctly,
-just without the panel manufacturer's specific grey-scale tuning. Connecting PRE directly
-to GND is acceptable for bring-up.
+just without the panel manufacturer's specific grey-scale tuning.
+
+**Current status:** All three PRE pins are connected directly to GND. The Zener diode
+clamp circuit will be added in a later revision once basic display operation is confirmed.
 
 > ⚠️ **Wiring error identified and corrected:** PRE pins were previously and incorrectly
 > wired to the RPi 5V rail. That connection has been removed. 5V on PRE actively drove
@@ -113,7 +114,7 @@ consistent with common practice for OLED reset lines.
 | 1 or 17 | 3.3V | VDD | Interface and analog power for LD7138 logic |
 | 1 or 17 | 3.3V | PSEL | Tied to VDD to enable internal VDDL regulator |
 | 2 or 4  | 5V   | Boost converter input | Input to external boost converter for VCC_C |
-| External boost output | 16V | VCC_C | ⚠️ **Not yet connected — required for display operation** |
+| MT3608 output | 14.8V | VCC_C | MT3608 powered from RPi 5V rail; adjusted to 14.8V |
 | 6, 9, 14, 20, 25, 30, 34, 39 | GND | VSSA (×2), VSSD | All ground pins tied to common ground |
 
 ---
@@ -132,13 +133,17 @@ consistent with common practice for OLED reset lines.
 
 | LD7138 Pin | Component | Connection | Purpose |
 |:---:|:---:|:---:|---|
-| RPRE | Zener diode, ~2.4V | Cathode → RPRE, Anode → GND | Clamps pre-charge voltage to 2.4V; absorbs pixel capacitance discharge |
-| GPRE | Zener diode, ~2.4V | Cathode → GPRE, Anode → GND | Same as above for green channel |
-| BPRE | Zener diode, ~2.4V | Cathode → BPRE, Anode → GND | Same as above for blue channel |
+| RPRE | Direct wire | RPRE → GND | 0V pre-charge; Zener clamp to be added later |
+| GPRE | Direct wire | GPRE → GND | Same as above for green channel |
+| BPRE | Direct wire | BPRE → GND | Same as above for blue channel |
 
-No supply voltage is connected to any PRE pin. For bring-up without the Zener diodes,
-connecting all three PRE pins directly to GND is acceptable (equivalent to 0V pre-charge,
-which is the datasheet's own measurement reference condition).
+**Current build:** All three PRE pins are connected directly to GND (0V pre-charge).
+This is equivalent to the datasheet's own measurement reference condition and is fully
+functional for bring-up. No supply voltage is connected to any PRE pin.
+
+**Planned change:** Replace the direct GND connection with a 2.4V Zener diode per channel
+(cathode → PRE pin, anode → GND) once basic display operation is confirmed. The Zener
+clamp reduces inter-row ghosting and improves grey-scale uniformity.
 
 ---
 
@@ -179,11 +184,12 @@ dtparam=spi=on
 
 | # | Issue | Status |
 |:---:|---|:---:|
-| 1 | VCC_C has no 8–20V supply; display column driver is inoperative | **Open — blocks display function** |
-| 2 | Boost converter module (MT3608 or equivalent) not yet sourced/wired | Open |
+| 1 | VCC_C has no 8–20V supply; display column driver is inoperative | **Resolved** — MT3608 wired, 14.8V output |
+| 2 | Boost converter module (MT3608 or equivalent) not yet sourced/wired | **Resolved** — MT3608 installed |
 | 3 | Ceramic caps used for VCC_C / VCC_R instead of electrolytic | Low priority; re-evaluate after bring-up |
 | 4 | PRE pins were incorrectly wired to 5V; connection removed — see PRE Pin notes | **Corrected** |
 | 5 | Formal KiCad schematic not yet created | Planned |
+| 6 | PRE pins connected to GND directly; Zener clamp circuit not yet installed | Planned — after display bring-up confirmed |
 
 ---
 
@@ -193,3 +199,4 @@ dtparam=spi=on
 |:---:|:---:|---|
 | 0.1 | 2026-03-25 | Initial wiring documented from hand-drawn sketch and bring-up session notes |
 | 0.2 | 2026-03-25 | Corrected PRE pin wiring: removed incorrect 5V supply connection; documented Zener clamp circuit and bring-up GND alternative. Closed open item #4. |
+| 0.3 | 2026-03-25 | VCC_C now connected via MT3608 boost converter at 14.8V (from RPi 5V rail). PRE pins confirmed wired directly to GND for bring-up; Zener clamp planned as open item #6. Closed open items #1 and #2. |
