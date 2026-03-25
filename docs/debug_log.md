@@ -529,6 +529,425 @@ The dominant blocker is likely in one of these categories:
 
 # Chat 3 (Claude)
 
+## Context
+
+Picked up from state left by Chat 1 and Chat 2. Basic code infrastructure was in place:
+libgpiod v2 API, SPI via `spidev`, init sequence including DSTBY clear (`0x03/0x00`),
+DotCurrent (`0x0E`), and PeakCurrent (`0x0F`). Display still showing no output.
+VCC_C not yet connected. PRE pins incorrectly wired.
+
+---
+
+## Session 1 — Documentation Corrections (wiring.md)
+
+### Changes Made
+
+**VCC_C section:**
+Updated from "not yet connected" to reflect MT3608 boost converter supplying **14.8V**
+(later raised to 16V, then reduced to 10V for second module bring-up).
+
+**PRE pins section:**
+Added explicit documentation: all three PRE pins (RPRE, GPRE, BPRE) connected directly
+to GND. Zener diode clamp circuit planned but not yet installed.
+
+**Power connections table:**
+Row updated from `⚠️ Not yet connected` → `MT3608 output | 14.8V | VCC_C`.
+
+**Known issues:**
+Items for VCC_C-no-supply and boost-converter-not-sourced marked **Resolved**.
+New item added: PRE pins at GND direct, Zener clamp pending.
+
+### Suggested Next Steps
+
+- Connect MT3608 output to VCC_C and confirm voltage at the ZIF breakout pads.
+- Confirm PRE pins at GND before next power-on.
+
+---
+
+## Session 2 — CSB Protocol Claim Investigation
+
+### Claim (from external AI session)
+
+> CSB must remain LOW for an entire multi-byte transaction. `spidev` deasserts CSB
+> after every `ioctl()` call, resetting the IC's SCL counter and destroying every
+> command. All previous test runs failed entirely due to this protocol violation. The
+> fix requires manual GPIO-controlled CSB held low across each command + parameters.
+
+### Investigation
+
+Cross-referenced against the LD7138 datasheet AC characteristics table. The datasheet
+defines the `Tcsbh` parameter: **CSB high pulse width, minimum 30 ns**. This parameter
+explicitly specifies the timing for CSB going HIGH between bytes — it would not exist
+if CSB were required to remain low for an entire transaction.
+
+The IC uses the **A0 line** — not CSB state — to distinguish command bytes
+(A0 LOW) from parameter/data bytes (A0 HIGH). CSB going high between bytes is
+completely benign provided the minimum 30 ns pulse width is met; `spidev` at 5 MHz
+holds CSB high for many microseconds between bytes, comfortably exceeding this.
+
+### Result
+
+**Claim was incorrect and refuted.** No code change made. The existing `spidev`
+per-byte CSB toggling is correct and fully compliant with the datasheet. This claim
+did not identify the root cause of the blank display.
+
+---
+
+## Session 3 — VCC_R Voltage Investigation
+
+### Tests and Measurements
+
+| Config | GPIO_RSTB | GPIO_A0 | VCC_R behaviour | IC temperature |
+|--------|-----------|---------|-----------------|----------------|
+| A (original) | BCM 24 | BCM 25 | Jumps ~1.44V during code, settles ~1.36V, slow decay after code stops | Cool |
+| B (swapped) | BCM 25 | BCM 24 | Continuously decays during and after code, no peak | Gets warm |
+
+- VCC_C confirmed **16.08V** at ZIF breakout pads with MT3608 connected.
+- VCC_R expected at VCC_C × 0.65 = **10.4V**. Actual maximum observed: **~1.44V**.
+- After VCC_C raised to 16V: VCC_R peaked at **1.44V** then settled to ~1.36V.
+- Ribbon cable reseated once: VCC_R briefly spiked to **~2V** then decayed to 0V.
+- Displayed continued blank throughout all tests.
+
+### Key Observation
+
+Config B produces autonomous IC activity **after the test code stops** — VCC_R
+continues to drain slowly without any SPI activity. This proves the IC's oscillator is
+running and the IC is scanning rows, powered entirely from its own supplies.
+
+Config A shows no autonomous activity after code stops — IC is in standby throughout.
+
+### Interpretation
+
+Config A: every `write_cmd()` call pulses RSTB (via misassigned BCM25=A0), resetting
+the IC on every command byte. DSTBY is never cleared. IC stays in standby, row
+regulator never enables, IC stays cool.
+
+Config B: A0 and RSTB are correctly assigned. Commands reach the IC, DSTBY is cleared,
+oscillator starts — but VCC_R never reaches operating voltage because the row regulator
+register was set incorrectly (see Session 7).
+
+---
+
+## Session 4 — GPIO A0 / RSTB Physical Swap
+
+### Root Cause
+
+Physical wiring had **BCM24 → A0** and **BCM25 → RSTB**, opposite to the original
+code definitions (`GPIO_RSTB=24, GPIO_A0=25`).
+
+In Config A (original), `write_cmd()` set `GPIO_A0` (=BCM25, physically RSTB) LOW
+before each SPI byte, asserting hardware reset on the IC with every command. No
+command sequence could complete.
+
+### Fix Applied
+
+```c
+#define GPIO_RSTB   25   /* BCM 25 = physical pin 22 */
+#define GPIO_A0     24   /* BCM 24 = physical pin 18 */
+```
+
+Note: the `printf` label on line 414 still reads "pin 18" for RSTB and "pin 22" for
+A0 — this is a cosmetic error in the log output only, not a functional defect.
+
+### Suggested Next Steps
+
+- Confirm RSTB/A0 physical wiring in `wiring.md` and update GPIO defines there.
+- Continue diagnosis with Config B (correct mapping).
+
+---
+
+## Session 5 — Ribbon Cable and ZIF Connector Investigation
+
+### Ribbon Cable Pinout (confirmed by user)
+
+| Pin | Signal  | Pin | Signal |
+|-----|---------|-----|--------|
+| 1   | VSSA    | 9   | SCLK   |
+| 2   | VDDL    | 10  | SDIN   |
+| 3   | VDD     | 11  | FSYNC  |
+| 4   | PSEL    | 12  | PRE    |
+| 5   | VSSD    | 13  | VCC_C  |
+| 6   | RSTB    | 14  | VCC_R  |
+| 7   | CSB     | 15  | VSSA   |
+| 8   | A0      |     |        |
+
+### Resistance Measurements (power off, to breadboard GND)
+
+| Pin | Signal | Measured | Interpretation |
+|-----|--------|----------|----------------|
+| 13  | VCC_C  | ~100 kΩ  | Decoupling cap + IC internal path |
+| 14  | VCC_R  | 5.9 MΩ   | Regulator output, off-state — normal |
+| 15  | VSSA   | ~15 Ω    | Initially appeared alarming |
+
+### Investigation — Pin 15 (VSSA) ~15 Ω
+
+The ~15 Ω reading was initially suspected to indicate a short on a power pin.
+After obtaining the ribbon cable pinout, pin 15 = VSSA (analog ground). The 15 Ω is
+entirely accounted for by DuPont wire + breadboard contact resistance: when pins 1
+(also VSSA) and 15 were re-measured via the ZIF socket at the breakout board headers,
+both read ~4.7–5.5 Ω against a random ground wire on the breadboard measuring ~8 Ω.
+All three readings are consistent — the ZIF contact quality is uniform and good.
+
+**There is no short on any power pin.** The ZIF connector contact is not the fault.
+
+### VCC_R Behaviour with Cap Disconnected from GND
+
+With the 4.7 µF VCC_R decoupling cap removed from the GND connection:
+- Config A: VCC_R minimum **~0.07V** (standby, no regulator activity)
+- Config B: VCC_R maximum **~1.2V** (regulator trying to run, no cap storage)
+
+At 1.2V maximum with no cap, the row regulator is current-limited before reaching
+its target (6.5V). The lack of cap is not the cause — a healthy regulator would
+reach 6.5V on an unloaded output almost instantly.
+
+### Capacitor Type Test
+
+Decoupling caps swapped from ceramic to electrolytic (matching a reference schematic).
+**No change in circuit behaviour.** Cap type is not relevant to the fault.
+
+### Breadboard Fault Verification
+
+With display disconnected from ZIF:
+- VCC_R breadboard node measured **open circuit** with cap leg disconnected from GND.
+- With cap reconnected: 3–14 MΩ — normal ceramic/electrolytic self-leakage (τ ≈ 10 MΩ
+  × 4.7 µF ≈ 47 s). The breadboard has no wiring fault on the VCC_R net.
+
+The VCC_R decay with display disconnected is cap self-discharge, not a fault.
+
+### Suggested Next Steps
+
+- Root cause of VCC_R not reaching operating voltage must be in the IC register
+  configuration, not in the ZIF connector or breadboard wiring.
+- Verify register 0x30h (VCC_R_SEL) value and bit layout against the full datasheet
+  description (§5.2 command description, register 20).
+
+---
+
+## Session 6 — IF_BUS_SEL Register (Independent Bug)
+
+### Finding
+
+Register 0x08h (IF_BUS_SEL) defaults to `0x00` = 6-bit interface bus mode. The code
+sends pixel data as 2 bytes per pixel (RGB565). In 6-bit mode the IC interprets this
+as 3 bytes per pixel, corrupting every pixel and misaligning the entire GRAM write.
+
+### Fix Applied
+
+Added to init sequence immediately after DSTBY exit:
+
+```c
+write_cmd(0x08);
+write_data_byte(0x01);   /* 8-bit I/F bus */
+```
+
+This bug would have prevented correct display output even if VCC_R were working.
+
+---
+
+## Session 7 — VCC_R_SEL Register EN Bit (Root Cause of No VCC_R)
+
+### Register 0x30h Full Description (datasheet p. 34)
+
+| Bit | 7 | 6 | 5 | **4** | 3 | 2  | 1  | 0  | Default |
+|-----|---|---|---|-------|---|----|----|----|---------|
+|     | — | — | — | **EN**| — | D2 | D1 | D0 | **04h** |
+
+D[2:0] voltage ratio table:
+
+| D[2:0] | VCC_R output |
+|--------|-------------|
+| 000    | VCC_C × 0.85 |
+| 001    | VCC_C × 0.80 |
+| 010    | VCC_C × 0.75 |
+| 011    | VCC_C × 0.70 |
+| 100    | VCC_C × 0.65 |
+
+Default `0x04` = `0b00000100` → **EN=0 (disabled)**, D=100 (0.65× ratio selected but
+regulator off).
+
+The code was sending `write_data_byte(0x04)` with a comment incorrectly stating
+"EN=1". Bit 4 is EN, not bit 2. The row regulator was **never enabled** across all
+previous test runs.
+
+Consequence: with DSTBY=0 (oscillator running, row scanning active) but EN=0, the
+datasheet requirement *"VCC_R must be connected to an external high voltage source"*
+was violated on every Config B run. The row driver was scanning with no VCC_R supply,
+stressing the row driver transistors over repeated runs.
+
+### Fix Applied
+
+```c
+write_cmd(0x30);
+write_data_byte(0x14);   /* EN=1 (bit4=1), D[2:0]=100 (bit2=1) → VCC_R = VCC_C × 0.65 */
+```
+
+### Init Ordering Fix (applied simultaneously)
+
+Row regulator enable moved to **immediately after DSTBY exit**, before any other
+registers, with a 50 ms wait. This ensures VCC_R is at operating voltage before the
+IC begins scanning:
+
+```c
+write_cmd(0x03); write_data_byte(0x00); sleep_ms(10);  // exit standby
+
+write_cmd(0x30); write_data_byte(0x14); sleep_ms(50);  // enable row reg FIRST
+
+// ... all other registers follow ...
+```
+
+Without this ordering, each init cycle briefly runs with the oscillator active and
+no VCC_R, violating the datasheet requirement.
+
+---
+
+## Session 8 — First IC Failure (Hardware Event)
+
+### Setup
+
+0x30 parameter changed from `0x04` → `0x14`. VCC_C = 16V. All previous Config B
+test runs had been run with EN=0 and no external VCC_R supply.
+
+### Observed
+
+- VCC_R rose to ~6V, continued climbing to **~16V** (= VCC_C).
+- IC became very hot and **sparked**. Burned out.
+- Display remained blank throughout.
+
+### Failure Analysis
+
+Prior Config B runs had already damaged the row regulator's output transistor by
+running the row driver with no VCC_R supply (violating datasheet requirement). When
+EN=1 was finally written, the pre-damaged transistor failed **shorted** (drain-source),
+directly connecting VCC_R to VCC_C. VCC_R rose to 16V. The row driver dissipated
+(16V − OLED_Vf) × scan_current across all row paths simultaneously and burned out.
+
+**Note:** 16V is within the datasheet absolute maximum for VCC_R (20V). The failure
+was caused by a degraded transistor, not a direct single-event spec violation.
+
+### Corrective Actions
+
+- Replaced display module (new IC + new panel).
+- VCC_C reduced from 16V to **10V** for reduced fault energy during bring-up.
+- Init ordering fix applied (Session 7).
+
+---
+
+## Session 9 — Second Module: VCC_R = 4.0V, Immediate Overheating
+
+### Setup
+
+- New LD7138 COG module (new IC + new OLED panel).
+- VCC_C = 10V (MT3608 setpoint reduced from 16V).
+- Code: 0x30 = `0x14`, row reg enabled immediately after DSTBY.
+
+### Measurements
+
+| Measurement | Value | Expected | Notes |
+|-------------|-------|----------|-------|
+| VCC_C (at ZIF pad, IC running) | **10.0V stable** | 10V | MT3608 not sagging under load |
+| VCC_R (settled) | **4.0V** | 6.5V | 0.40× ratio — no valid D[2:0] matches 0.40× |
+| VCC_R (peak at startup) | **4.2V** | 6.5V | Decays as IC load increases |
+| IC temperature | **Very hot** | Warm | Heats immediately when 0x30=0x14 is written |
+
+### Key Observations
+
+1. **VCC_C does not sag.** Previously suspected; confirmed not the cause when user
+   measured VCC_C under load. MT3608 holds 10V stably.
+
+2. **Heating is immediate.** IC heats as soon as the row regulator is enabled
+   (`write_cmd(0x30); write_data_byte(0x14)`), not when display turns ON or pixel
+   data is sent. The fault exists before the display is scanning pixels.
+
+3. **Heating persists after code stops.** The IC continues to be hot in the idle
+   state after the test program exits. This means the fault is a sustained static
+   load, not a transient from the init sequence.
+
+4. **Only full power removal resets the IC.** Disconnecting and reconnecting VDD
+   (3.3V) alone did not clear the IC state. Removing both VDD and GND (i.e., all
+   power including VCC_C path) was required. This is consistent with VCC_C powering
+   internal circuits independently of VDD.
+
+5. **4.0V / 10.0V = 0.40× ratio.** No D[2:0] setting produces 0.40×. The regulator
+   is in current-limited dropout, not regulating. The load on VCC_R exceeds the
+   regulator's current capability.
+
+### Power Dissipation Estimate
+
+```
+P_regulator = (VCC_C − VCC_R) × I_load = (10V − 4V) × I_load = 6V × I_load
+```
+
+For the IC to heat immediately to "very hot," I_load ≈ 50–100 mA, implying a
+~40–80 Ω resistive path from VCC_R to GND internal to the display module.
+
+### Possible Causes
+
+| Hypothesis | Evidence For | Evidence Against | Status |
+|------------|-------------|-----------------|--------|
+| Breadboard VCC_R wiring fault | (none) | Breadboard previously verified clean; VCC_R = open circuit with display disconnected | **Eliminated** |
+| MT3608 sagging under load | (none) | User confirmed VCC_C stable at 10.0V during IC operation | **Eliminated** |
+| ZIF connector contact fault | (none) | Pin 1/15 resistance confirms uniform contact quality; IC receives SPI commands correctly | **Eliminated** |
+| New module internal fault (IC or panel) | Heating starts at EN=1 before display ON; only full power reset works; 5.9 MΩ measurement was on old module, not new | (unconfirmed) | **Primary suspect** |
+
+### Suggested Next Steps
+
+1. **Power off completely. Do not run code again until fault is isolated.**
+
+2. **Resistance check with power off — compare display connected vs disconnected:**
+
+   | State | Measure | Healthy result | Fault result |
+   |-------|---------|----------------|--------------|
+   | Display disconnected from ZIF | Pin 14 (VCC_R header) to GND | ~MΩ (cap leakage) | — |
+   | Display connected, power off | Pin 14 (VCC_R header) to GND | ~MΩ (unchanged) | < 100 kΩ → internal short |
+
+   Any significant drop in resistance when display is connected implicates the module.
+
+3. **If module is confirmed faulty:** Return/replace. Source from a different batch if
+   possible.
+
+4. **Before powering any future replacement:** Always measure VCC_R → GND resistance
+   with display connected and power off first. < 100 kΩ = do not power.
+
+5. **Once a healthy module is confirmed (VCC_R resistance normal):** Run test code.
+   VCC_R should reach ~6.5V within the 50 ms wait after writing 0x30. Confirm before
+   proceeding to display ON.
+
+6. **After display produces output:** Raise VCC_C to ~13V so VCC_R = 8.45V (above the
+   8V operating minimum). Then narrow diagnostic settings back to 64-row panel range.
+
+---
+
+## Register Corrections Summary
+
+| Register | Parameter | Wrong value sent | Correct value | Effect of error |
+|----------|-----------|-----------------|---------------|-----------------|
+| `0x08h` IF_BUS_SEL | Bus width | `0x00` (default, 6-bit) | `0x01` (8-bit) | All pixel data corrupted; stream misaligned |
+| `0x30h` VCC_R_SEL | EN bit (bit 4) | `0x04` (EN=0) | `0x14` (EN=1) | Row regulator never enabled; VCC_R collapses; datasheet requirement violated on every run |
+
+---
+
+## Hardware Incidents
+
+| # | Date | Description | Root Cause |
+|---|------|-------------|------------|
+| 1 | 2026-03-25 | First IC burned out (VCC_R → 16V, sparked) | Row regulator transistor pre-damaged by repeated EN=0 runs violating datasheet VCC_R supply requirement; transistor failed shorted when EN=1 first applied |
+
+---
+
+## Current Code State
+
+| Item | Value | Notes |
+|------|-------|-------|
+| `GPIO_RSTB` | BCM 25 (physical pin 22) | Corrected from original BCM 24 |
+| `GPIO_A0` | BCM 24 (physical pin 18) | Corrected from original BCM 25 |
+| `DISPLAY_H` | 128 | Diagnostic — covers full IC row range pending panel row identification |
+| DispSize Yend | 0x7F (127) | Diagnostic |
+| MBoxSize Yend | 0x7F (127) | Diagnostic |
+| IF_BUS_SEL | 0x01 (8-bit) | Fixed |
+| VCC_R_SEL | 0x14 (EN=1, D=100, ×0.65) | Fixed; moved to immediately after DSTBY exit |
+| DotCurrent | 100 µA per channel | |
+| PeakCurrent | 256 µA per channel | |
+
 ---
 
 # Chat 4 (Claude)
