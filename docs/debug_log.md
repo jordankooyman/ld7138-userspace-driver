@@ -6,10 +6,11 @@
 **Test file:** `tests/init_test_4.c`
 
 Note: Some chats were performed simulataneously, so sessions are not be strictly sequential and may show overlapping questions or findings; they may also show findings from between chats to validate the accuracy of the suggestions.
+Chats that were done in VSCode using Copilot or Claude Code could not provide a share link, but the chats performed with the tools directly do have share links included. Regardless, all chats have been summarized using the same instructions and added to this log document.
 
 ---
 
-# Chat 1 (Claude)
+# Chat 1 (Claude) - https://claude.ai/share/486ff0da-8c80-478b-8fd2-e3d8dca8c6ba
 # LD7138 OLED Display — Bring-Up Debug Log
 
 **Project:** LD7138 128×64 RGB OLED userspace display library for Raspberry Pi 4B
@@ -1148,7 +1149,7 @@ The display cannot operate with VCC_R = 4V (below 8V minimum).
 
 ---
 
-# Chat 5 (Claude)
+# Chat 5 (Claude) - https://claude.ai/share/de20c68c-14ce-48ed-958b-fc1a9dfffde9
 
 ## Context
 
