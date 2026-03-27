@@ -1,161 +1,177 @@
 # Wiring Documentation: LD7138 OLED Display ↔ Raspberry Pi 4B
 
-**Status:** Initial bring-up wiring — assembled on breadboard.
-**Formal schematic:** Pending (hand-drawn sketch exists; KiCad schematic TBD).
-**Last updated:** 2026-03-25 (Rev 0.3)
+**Status:** Active bring-up wiring — assembled on breadboard.
+**Formal schematic:** Pending (KiCad schematic TBD).
+**Last updated:** 2026-03-27 (Rev 0.4)
 
 ---
 
 ## Overview
 
-The LD7138 is a 128(RGB)×64 pixel, 65K-color OLED column/row driver IC communicating
-over SPI at up to 10 MHz. The Raspberry Pi 4B controls it via the `spidev` kernel driver
-(`/dev/spidev0.0`) for data and `libgpiod` for the two GPIO control lines (A0, RSTB).
+The LD7138 is a 128(RGB)×64 pixel, 65K-color OLED column/row driver IC. The IC is
+permanently bonded to the OLED panel on the ribbon cable — it is not a separate
+component on the breadboard. All connections to the IC are made via a 15-pin ribbon
+cable terminated at a ZIF connector breakout board.
+
+The Raspberry Pi 4B controls the display via SPI using `spidev` (`/dev/spidev0.0`)
+for data and `libgpiod` v2 for the two GPIO control lines (A0, RSTB).
 
 ---
 
 ## ⚠️ Critical Hardware Notes
 
+### VDD Must Be Supplied at 3.3V
+
+VDD (ribbon pin 3) is the IC's interface power and analog reference supply
+(operating range 2.8V typical, 1.65–3.6V). **Without VDD the entire logic section,
+oscillator, and current reference are unpowered.** PSEL (ribbon pin 4) is tied to
+VDD via a direct jumper between pins 3 and 4 at the ZIF breakout, enabling the
+internal VDDL regulator. Both must receive 3.3V.
+
 ### VCC_C Must Be Supplied Externally at 8–20V
 
-The LD7138 **has no internal boost converter for VCC_C**. The 4.7 µF capacitor on VCC_C
-is a decoupling capacitor only — it stabilizes a supply you must provide; it does not
-generate one. Without VCC_C at 8–20V the column driver is completely inoperative and the
-display will show nothing regardless of correct SPI communication.
+The LD7138 has no internal boost converter for VCC_C. The 4.7 µF capacitor on VCC_C
+is a decoupling capacitor only. Without VCC_C at 8–20V the column driver is
+completely inoperative.
 
-**Current status:** VCC_C is supplied by an MT3608 boost converter module, powered from
-the Raspberry Pi's 5V rail and adjusted to **16.0V** output. This is within the datasheet
-operating range (8–20V) and provides adequate headroom for the internal row regulator.
+**Current status:** VCC_C supplied by an MT3608 boost converter module, powered from
+RPi pin 4 (5V rail), adjusted to **15.0V** output.
 
 ### VCC_R (Row Driver Power)
 
-VCC_R is derived from VCC_C by the LD7138's internal row power regulator (register
-`0x30h`). The default ratio is VCC_C × 0.65. A 4.7 µF decoupling capacitor is connected
-between VCC_R and GND per the datasheet recommendation. **VCC_R should not be driven
-externally when the internal regulator is enabled.**
+VCC_R can be derived from VCC_C via the LD7138's internal row power regulator
+(register `0x30h`), or supplied externally with the internal regulator disabled
+(EN=0, the default `0x04`).
+
+**Current status:** VCC_R is supplied externally from a bench power supply at **9V**
+with a **150mA current limit**, with register `0x30h` set to `0x04` (EN=0).
+A 4.7 µF electrolytic capacitor is connected between VCC_R (pin 14) and GND,
+positive lead to pin 14.
+
+> ⚠️ **20mA is insufficient for panel operation.** With 100µA dot current across
+> 384 column outputs, legitimate VCC_R current during each active row scan period
+> is ~38.4mA dot + up to ~98mA peak boot. 150mA covers normal operation while
+> still protecting against genuine fault conditions.
+
+> ⚠️ **Power sequencing is mandatory.** Per datasheet §10.4, VDD must be stable
+> before VCC_C or VCC_R are applied. Minimum delay 2ms; use ≥50ms in practice.
+> Correct order: GND → VDD (3.3V) → VCC_C → VCC_R → run code.
+> Applying VCC_R before VDD leaves the row driver transistors in indeterminate
+> states, causing uncontrolled current draw and IC heating regardless of any
+> register configuration.
 
 ### RPRE / GPRE / BPRE (Pre-Charge Voltage)
 
-These pins are **not connected to any supply rail.** The correct circuit, per the seller
-reference schematic, is a reverse Zener diode (cathode to PRE pin, anode to GND) with no
-other connection. There is no external voltage source on these pins.
-
-The Zener acts as a voltage clamp: during the pre-charge period of each scan cycle the
-LD7138's internal column driver connects each column output back to the PRE pin through
-~300–500Ω of internal resistance. The OLED pixel capacitance discharges through that path
-toward the PRE pin, and the Zener absorbs the discharge current, clamping the pin at
-approximately 2.4V. This becomes the defined reset level for all column outputs before
-new pixel data is loaded for the next row, reducing ghosting and improving grey-scale
-uniformity.
-
-The datasheet uses `R/G/BPRE = 0V` for all electrical measurements, meaning 0V (GND
-direct, no Zener) is a fully valid operating condition — the display functions correctly,
-just without the panel manufacturer's specific grey-scale tuning.
-
-**Current status:** All three PRE pins are connected directly to GND. The Zener diode
-clamp circuit will be added in a later revision once basic display operation is confirmed.
-
-> ⚠️ **Wiring error identified and corrected:** PRE pins were previously and incorrectly
-> wired to the RPi 5V rail. That connection has been removed. 5V on PRE actively drove
-> the pre-charge level above the Zener clamp point and was not the intended circuit.
-> Although 5V is within the datasheet's absolute maximum (7V), it was incorrect and has
-> been corrected.
+All three PRE channels share a single ribbon pin (pin 12). A reverse Zener diode
+is installed: cathode (banded end) to pin 12, anode to GND. Zener voltage ≈ 2.4V.
+This clamps the pre-charge reset level for all three colour channels, reducing
+ghosting and improving grey-scale uniformity. No external supply voltage is
+connected to this pin.
 
 ### PSEL = VDD
 
-PSEL is tied to VDD (3.3V). This enables the internal logic power regulator, which
-generates VDDL internally. A 1–4.7 µF capacitor between VDDL and VSSD is required by
-the datasheet (§11.2).
+PSEL (pin 4) is tied directly to VDD (pin 3) via a jumper between the two ZIF
+breakout header pins. This enables the internal VDDL logic power regulator.
+A 4.7 µF ceramic decoupling capacitor is connected between VDDL (pin 2) and GND
+per datasheet §11.2.
 
-### Capacitor Types
+### VDDL (Pin 2)
 
-The datasheet recommends electrolytic capacitors for VCC_C and VCC_R (4.7 µF) due to
-their lower ESR at high-current transients in the driver rails. Ceramic capacitors have
-been substituted for initial bring-up. This is acceptable for testing but may affect
-display stability or brightness uniformity at full operating current.
+VDDL is the internal logic power output, generated by the internal regulator when
+PSEL=VDD. A 4.7 µF ceramic decoupling capacitor is connected between pin 2 and GND.
+No external supply is connected to this pin.
 
----
+### Capacitor Polarity
 
-## SPI Signal Mapping
-
-The LD7138 uses a write-only SPI interface (D1 = SDIN, D0 = SCLK) in serial mode
-(PS pin tied low, IXS pin tied low). The Raspberry Pi 4B's SPI0 bus is used.
-
-| RPi Physical Pin | BCM GPIO | SPI0 Function | LD7138 Pin | Notes |
-|:---:|:---:|:---:|:---:|---|
-| 19 | BCM 10 | MOSI (SPI0) | SDIN (D1) | Serial data input |
-| 23 | BCM 11 | SCLK (SPI0) | SCLK (D0) | Serial clock |
-| 24 | BCM 8  | CE0 (SPI0)  | CSB | Chip select, active low; hardware-controlled by spidev |
+Electrolytic capacitors on VCC_C (pin 13) and VCC_R (pin 14) are installed with the
+white stripe (negative lead) on the GND side. Ceramic capacitors on VDDL (pin 2)
+and VDD (pin 3) are non-polarised.
 
 ---
 
-## GPIO Control Lines
+## Ribbon Cable Pin Mapping (15-pin)
 
-These two lines are managed via `libgpiod` (`/dev/gpiochip0`), not by spidev.
+| Ribbon Pin | Signal | Connection | Notes |
+|:---:|:---:|---|---|
+| 1  | VSSA  | GND (breadboard) | Analog driver GND |
+| 2  | VDDL  | 4.7 µF ceramic cap to GND | Internal logic power output; no supply connected |
+| 3  | VDD   | 3.3V (RPi pin 17) + 4.7 µF ceramic cap to GND + jumper to pin 4 | Logic/analog power |
+| 4  | PSEL  | Jumper to pin 3 (VDD) + jumper to 3.3V rail | PSEL=VDD enables internal VDDL regulator |
+| 5  | VSSD  | GND (breadboard) | Logic GND |
+| 6  | RSTB  | RPi pin 18 (BCM 24); 10 kΩ pull-up to 3.3V; 0.1 µF cap to GND | Reset, active low |
+| 7  | CSB   | RPi pin 24 (BCM 8, SPI0 CE0) | Chip select, active low |
+| 8  | A0    | RPi pin 22 (BCM 25) | LOW=command, HIGH=parameter/data |
+| 9  | SCLK  | RPi pin 23 (BCM 11, SPI0 SCLK) | Serial clock |
+| 10 | SDIN  | RPi pin 19 (BCM 10, SPI0 MOSI) | Serial data input |
+| 11 | FSYNC | Floating | Frame sync output; not used |
+| 12 | PRE   | Zener diode cathode (banded end); anode to GND; Vz ≈ 2.4V | Shared R/G/B pre-charge clamp |
+| 13 | VCC_C | MT3608 Vout+; 4.7 µF electrolytic cap to GND (stripe on GND) | 15.0V from boost converter |
+| 14 | VCC_R | Bench supply 9V, 20mA limit; 4.7 µF electrolytic cap to GND (stripe on GND) | External supply, internal regulator disabled |
+| 15 | VSSA  | GND (breadboard) | Analog driver GND |
 
-| RPi Physical Pin | BCM GPIO | LD7138 Pin | Idle State | Function |
-|:---:|:---:|:---:|:---:|---|
-| 18 | BCM 24 | RSTB | HIGH | Hardware reset, active low. |
-| 22 | BCM 25 | A0   | HIGH | LOW = command register; HIGH = parameter/pixel data |
+---
+
+## SPI Signal Mapping (RPi ↔ Ribbon)
+
+| RPi Physical Pin | BCM GPIO | SPI0 Function | Ribbon Pin | Signal |
+|:---:|:---:|:---:|:---:|:---:|
+| 19 | BCM 10 | MOSI | 10 | SDIN |
+| 23 | BCM 11 | SCLK | 9  | SCLK |
+| 24 | BCM 8  | CE0  | 7  | CSB  |
+
+---
+
+## GPIO Control Lines (libgpiod v2)
+
+| RPi Physical Pin | BCM GPIO | Ribbon Pin | Signal | Idle State | Code Define |
+|:---:|:---:|:---:|:---:|:---:|:---:|
+| 18 | BCM 24 | 6 | RSTB | HIGH | `GPIO_RSTB 24` |
+| 22 | BCM 25 | 8 | A0   | HIGH | `GPIO_A0   25` |
 
 ### RSTB RC Filter
 
-A 10 kΩ pull-up resistor to 3.3V and a 0.1 µF capacitor to ground form an RC filter
-on RSTB (time constant ≈ 1 ms). This ensures RSTB rises cleanly at power-on before
-the GPIO driver asserts control, preventing a spurious reset glitch. The RC filter is
-consistent with common practice for OLED reset lines.
+10 kΩ pull-up to 3.3V and 0.1 µF capacitor to GND on the RSTB line (ribbon pin 6).
+Time constant ≈ 1 ms. Ensures clean power-on rise before GPIO driver asserts control.
 
 ---
 
 ## Power Connections
 
-| RPi Physical Pin | Voltage | LD7138 / Circuit Node | Notes |
-|:---:|:---:|:---:|---|
-| 1 or 17 | 3.3V | VDD | Interface and analog power for LD7138 logic |
-| 1 or 17 | 3.3V | PSEL | Tied to VDD to enable internal VDDL regulator |
-| 2 or 4  | 5V   | Boost converter input | Input to external boost converter for VCC_C |
-| MT3608 output | 14.8V | VCC_C | MT3608 powered from RPi 5V rail; adjusted to 14.8V |
-| 6, 9, 14, 20, 25, 30, 34, 39 | GND | VSSA (×2), VSSD | All ground pins tied to common ground |
+| Source | Ribbon Pin | Signal | Voltage | Notes |
+|:---:|:---:|:---:|:---:|---|
+| RPi pin 17 | 3, 4 | VDD, PSEL | 3.3V | Logic/analog power; PSEL tied to VDD via jumper |
+| RPi pin 20 | — | GND ref | 0V | Breadboard ground reference |
+| RPi pin 4  | — | MT3608 Vin+ | 5V | Input to boost converter for VCC_C |
+| MT3608 Vout+ | 13 | VCC_C | 15.0V | Column driver power |
+| Bench supply | 14 | VCC_R | 9.0V, 150mA limit | Row driver power, externally supplied |
+| GND | 1, 5, 15 | VSSA, VSSD | 0V | All ground pins to common breadboard GND |
 
 ---
 
 ## Decoupling Capacitors
 
-| Node | Capacitance | Type (as built) | Recommended type | Ref |
+| Ribbon Pin | Signal | Capacitance | Type | Polarity | Ref |
+|:---:|:---:|:---:|:---:|:---:|:---:|
+| 2  | VDDL  | 4.7 µF | Ceramic | N/A | Datasheet §11.2 |
+| 3  | VDD   | 4.7 µF | Ceramic | N/A | Decoupling |
+| 13 | VCC_C | 4.7 µF | Electrolytic | Stripe (−) to GND | Datasheet §3.1 |
+| 14 | VCC_R | 4.7 µF | Electrolytic | Stripe (−) to GND | Datasheet §3.1 |
+
+---
+
+## PRE Pin Passive Component
+
+| Ribbon Pin | Signal | Component | Orientation | Purpose |
 |:---:|:---:|:---:|:---:|---|
-| VCC_C to VSSA | 4.7 µF | Ceramic (0805) | Electrolytic | Datasheet §3.1 |
-| VCC_R to VSSA | 4.7 µF | Ceramic (0805) | Electrolytic, 4.7 µF | Datasheet §3.1 |
-| VDDL to VSSD  | 4.7 µF | Ceramic (0805) | 1–4.7 µF, ≥5V      | Datasheet §11.2 |
+| 12 | PRE (R/G/B shared) | Zener diode, Vz ≈ 2.4V | Cathode (band) → pin 12; Anode → GND | Pre-charge clamp ~2.4V for all three colour channels |
 
 ---
 
-## PRE Pin Passive Components
+## Interface Mode Strap Pins
 
-| LD7138 Pin | Component | Connection | Purpose |
-|:---:|:---:|:---:|---|
-| RPRE | Direct wire | RPRE → GND | 0V pre-charge; Zener clamp to be added later |
-| GPRE | Direct wire | GPRE → GND | Same as above for green channel |
-| BPRE | Direct wire | BPRE → GND | Same as above for blue channel |
-
-**Current build:** All three PRE pins are connected directly to GND (0V pre-charge).
-This is equivalent to the datasheet's own measurement reference condition and is fully
-functional for bring-up. No supply voltage is connected to any PRE pin.
-
-**Planned change:** Replace the direct GND connection with a 2.4V Zener diode per channel
-(cathode → PRE pin, anode → GND) once basic display operation is confirmed. The Zener
-clamp reduces inter-row ghosting and improves grey-scale uniformity.
-
----
-
-These LD7138 pins select the communication interface and must be tied to fixed logic
-levels. In SPI mode: PS = low, IXS = low.
-
-| LD7138 Pin | Connection | Reason |
-|:---:|:---:|---|
-| PS  | GND (VSSD) | LOW = Serial interface selected |
-| IXS | GND (VSSD) | LOW = SPI selected (not I2C) |
-| C80 | GND (VSSD) | LOW = 80-series parallel mode (ignored in serial mode) |
-| FSYNC | Floating | Frame sync output; not used in this application |
+These LD7138 pins select the communication interface. In SPI mode all three are LOW.
+In this design they are grounded internally on the display module (PS, IXS, C80 are
+not exposed on the 15-pin ribbon cable) — SPI mode is fixed by the module.
 
 ---
 
@@ -166,7 +182,7 @@ levels. In SPI mode: PS = low, IXS = low.
 | SPI data (SDIN, SCLK, CSB) | Linux `spidev` via `ioctl(SPI_IOC_MESSAGE)` | `/dev/spidev0.0` |
 | GPIO control (RSTB, A0) | `libgpiod` v2 (`gpiod_chip_request_lines`) | `/dev/gpiochip0` |
 
-**SPI configuration used:**
+**SPI configuration:**
 - Mode: SPI_MODE_0 (CPOL=0, CPHA=0)
 - Speed: 5 MHz (datasheet max write: 10 MHz; conservative for bring-up)
 - Bits per word: 8
@@ -180,16 +196,27 @@ dtparam=spi=on
 
 ---
 
+## Register Configuration (bring-up)
+
+| Register | Value | Description |
+|:---:|:---:|---|
+| `0x30h` VCC_R_SEL | `0x04` | EN=0: internal row regulator **disabled**; VCC_R driven externally from bench supply. D[2:0]=100 retained but ignored when EN=0. |
+
+When transitioning to internal regulator: set `0x30h` = `0x14` (EN=1, ratio 0.65).
+VCC_C must be ≥ 12.3V for VCC_R to reach the 8V operating minimum at this ratio.
+
+---
+
 ## Known Issues / Open Items
 
 | # | Issue | Status |
 |:---:|---|:---:|
-| 1 | VCC_C has no 8–20V supply; display column driver is inoperative | **Resolved** — MT3608 wired, 14.8V output |
-| 2 | Boost converter module (MT3608 or equivalent) not yet sourced/wired | **Resolved** — MT3608 installed |
-| 3 | Ceramic caps used for VCC_C / VCC_R instead of electrolytic | Low priority; re-evaluate after bring-up |
-| 4 | PRE pins were incorrectly wired to 5V; connection removed — see PRE Pin notes | **Corrected** |
-| 5 | Formal KiCad schematic not yet created | Planned |
-| 6 | PRE pins connected to GND directly; Zener clamp circuit not yet installed | Planned — after display bring-up confirmed |
+| 1 | VDD (pin 3) had no 3.3V connection — cap and PSEL jumper only | **Resolved Rev 0.5 — 3.3V jumper added to pin 4** |
+| 2 | Display has never produced visible output | Under investigation — first legitimate init observed Rev 0.5 |
+| 3 | Correct row subset (0–63 or 64–127) for 64-row panel not yet confirmed | Pending — code currently scans all 128 rows diagnostically |
+| 4 | VCC_R internal regulator not yet validated (currently external bench supply) | Pending — after display bring-up confirmed |
+| 5 | Column drive current (100µA/256µA) may exceed VCC_R bench supply headroom | Reduce to 25µA dot / 64µA peak for initial bring-up test |
+| 6 | Formal KiCad schematic not yet created | Planned |
 
 ---
 
@@ -197,6 +224,8 @@ dtparam=spi=on
 
 | Rev | Date | Description |
 |:---:|:---:|---|
-| 0.1 | 2026-03-25 | Initial wiring documented from hand-drawn sketch and bring-up session notes |
-| 0.2 | 2026-03-25 | Corrected PRE pin wiring: removed incorrect 5V supply connection; documented Zener clamp circuit and bring-up GND alternative. Closed open item #4. |
-| 0.3 | 2026-03-25 | VCC_C now connected via MT3608 boost converter at 14.8V (from RPi 5V rail). PRE pins confirmed wired directly to GND for bring-up; Zener clamp planned as open item #6. Closed open items #1 and #2. |
+| 0.1 | 2026-03-25 | Initial wiring documented |
+| 0.2 | 2026-03-25 | Corrected PRE pin wiring; documented Zener clamp circuit |
+| 0.3 | 2026-03-25 | VCC_C connected via MT3608 at 14.8V; PRE pins to GND for bring-up |
+| 0.4 | 2026-03-27 | Full wiring audit: VDD missing 3.3V supply identified; VCC_R moved to external bench supply at 9V/20mA; PRE Zener diode installed (cathode to pin 12); electrolytic cap polarities confirmed; power sequence requirements documented; LD7138 noted as permanently bonded to panel on ribbon cable |
+| 0.5 | 2026-03-27 | VDD/PSEL 3.3V supply confirmed connected; VCC_R current limit raised to 150mA; first code-triggered VCC_R response observed (4.88V at 20mA limit — IC operating but current-starved); column current reduction recommended for initial bring-up |

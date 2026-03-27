@@ -1145,3 +1145,294 @@ The display cannot operate with VCC_R = 4V (below 8V minimum).
 | 4 | VCC_C should be raised to ≥12.5V (so VCC_R ≥ 8.1V) once VCC_R issue resolved | Pending |
 | 5 | PRE pin Zener clamp circuit not yet installed (currently GND direct) | Planned — after basic display operation confirmed |
 | 6 | Formal KiCad schematic not created | Planned |
+
+---
+
+# Chat 5 (Claude)
+
+## Context
+
+Continuing from Chat 3/4 state. Second LD7138 module (new IC + new OLED panel bonded
+to ribbon cable) in use. VCC_C supplied via MT3608 at ~10–15V. Code file: `init_test_4.c`
+using spidev + libgpiod v2. Register `0x30h` set to `0x04` (EN=0, external VCC_R).
+Resistance measurements from Chat 3 Session 9 had confirmed no short on VCC_R pin (5.9 MΩ)
+and no short on VCC_C pin (~100 kΩ from decoupling cap). Display still dark throughout.
+
+**Critical hardware note established this session:** The LD7138 IC is permanently bonded
+to the OLED panel on the ribbon cable as a COG (chip-on-glass) assembly. The IC is bare
+silicon on the ribbon. It cannot be separated from the panel. All interface connections
+are made via the 15-pin ribbon cable ZIF connector only.
+
+---
+
+## Session 1 — Pre-Resistance-Check Planning
+
+### Questions Addressed
+
+1. **Next steps assuming IC is still good** — resistance measurement is the mandatory
+   first gate. Once clean, raise VCC_C to achieve VCC_R ≥ 8V, or supply VCC_R externally.
+
+2. **Likelihood of external VCC_R resolving issues** — useful as a protective diagnostic
+   step (bench supply with current limit will current-limit rather than overheat if a fault
+   is present), but not a standalone fix if the root cause is a wiring short or panel damage.
+   Key requirement: register `0x30h` must be `0x04` (EN=0) when driving VCC_R externally,
+   to avoid bus conflict with the internal regulator.
+
+3. **VCC_R at VCC_C = 15.0V** — with default ratio 0.65:
+   `VCC_R = 15.0 × 0.65 = 9.75V` (within spec, comfortably above 8V minimum).
+
+4. **Minimum VCC_C for VCC_R ≥ 8V at each ratio:**
+
+   | D[2:0] | Ratio | Min VCC_C for VCC_R ≥ 8V |
+   |--------|-------|--------------------------|
+   | 000    | 0.85  | 9.4V (`0x30h` = `0x10`)  |
+   | 001    | 0.80  | 10.0V                     |
+   | 010    | 0.75  | 10.7V                     |
+   | 011    | 0.70  | 11.4V                     |
+   | 100    | 0.65  | 12.3V (default ratio)     |
+
+   Note: datasheet discrepancy — Features section (p.4) lists VCC_R minimum 8V; operating
+   range table (p.43) lists 2.0V minimum for VCC_R. The 2.0V figure likely applies to
+   externally supplied VCC_R configurations only. 8V is the correct floor for internal
+   regulator operation.
+
+### Suggested Next Steps
+
+- Complete resistance check before any further power-on.
+- If clean, raise VCC_C to ≥12.3V or use bench supply for external VCC_R diagnostic.
+- Use bench supply with current limit (100–200mA) for initial external VCC_R testing.
+
+---
+
+## Session 2 — Resistance Measurements at ZIF Connector
+
+### Measurements (power off, all pins measured against pin 1 / VSSA)
+
+| Pin | Signal | Measured | Interpretation |
+|-----|--------|----------|----------------|
+| 13  | VCC_C  | 0.75–1.0 kΩ | MT3608 feedback divider; 79 kΩ with module connected, 8 MΩ+ without — normal |
+| 14  | VCC_R  | 1.5 MΩ | High impedance, healthy regulator output in off-state |
+| 15  | VSSA   | 2.7 Ω | Ground-to-ground conductor resistance, completely normal |
+
+### Display Disconnected from ZIF
+
+- Pin 13 (VCC_C): >8 MΩ — panel clean
+- Pin 14 (VCC_R): >8 MΩ — panel clean
+- Pin 15 (VSSA): 1.3 Ω — normal
+
+**Panel confirmed electrically undamaged.** The Session 2 overvoltage incident did not
+cause static-measurable panel damage. MT3608 feedback divider accounts for the low VCC_C
+breadboard reading — confirmed by 8 MΩ+ reading with module disconnected. Breadboard
+wiring on both rails confirmed clean.
+
+### Conclusion
+
+Hardware is electrically healthy. VCC_R sag in prior sessions was the internal regulator
+in current-limited dropout because VCC_C = 10V × 0.65 = 6.5V < 8V minimum, not a fault.
+
+---
+
+## Session 3 — Wiring Audit: VDD Supply Missing
+
+### Context
+
+Full wiring state described. Zener diode newly installed on PRE pin (ribbon pin 12):
+cathode (banded end) to pin 12, anode to GND, Vz ≈ 2.4V. Replaces direct-GND connection.
+
+### Critical Finding — VDD (Pin 3) Had No 3.3V Supply
+
+Pin 3 (VDD) had a 4.7 µF decoupling cap to GND and a jumper to pin 4 (PSEL), but
+**no connection to the 3.3V rail.** VDD is the IC's entire logic and analog reference
+supply. Without it the IC's internal logic, oscillator, and current reference are all
+unpowered while VCC_C and VCC_R are live.
+
+This explains every prior session's symptoms: the IC responded erratically because the
+logic section had no power, yet the high-voltage rails were active and row driver
+transistors were in indeterminate states drawing uncontrolled current.
+
+**Fix applied:** Jumper added from 3.3V rail to pin 4 (tied to pin 3 via existing
+jumper). Measured 3.29V at breadboard 3.3V rail.
+
+wiring.md updated to Rev 0.4.
+
+---
+
+## Session 4 — Power Sequencing Violation Identified
+
+### Finding
+
+With 15V on VCC_C and 3.3V/5V/GND disconnected, reconnecting power and then connecting
+VCC_R caused **immediate 146mA draw before any code ran.**
+
+Datasheet §10.4 requires VDD stable before VCC_C or VCC_R. Without VDD, IC logic is
+unpowered, row driver transistors are in indeterminate states, and applying VCC_R
+forward-biases OLED elements through parasitic conduction paths. This violation had
+likely been present across multiple prior sessions, stressing the IC on every power cycle.
+
+**With correct sequence (GND → 3.3V → VCC_C → VCC_R, ≥1s between each):**
+VCC_R stable at 9.11V setpoint with 0mA draw before code runs.
+
+---
+
+## Session 5 — First Run After VDD Connected
+
+### Setup
+
+- 3.3V confirmed at breadboard rail (3.29V measured).
+- Power-up sequence: GND → 3.3V → VCC_C (15V) → VCC_R (9.11V, 20mA limit).
+- Code: spidev, `0x30h` = `0x04`, 25µA dot/64µA peak current.
+
+### Result
+
+- VCC_R stable at 9.11V with 0mA draw before code runs — **first time observed with
+  panel connected.**
+- After code ran: VCC_R dropped to 4.88V, hitting 20mA current limit.
+- IC warm. Display dark.
+
+### Significance
+
+First confirmed instance of VDD-powered IC receiving and responding to the init sequence.
+Current only after code runs confirms commands are being received. 20mA limit identified
+as too conservative for panel operation.
+
+---
+
+## Session 6 — Current Limit Analysis and Reduction of Drive Current
+
+### Pre-Charge Current Calculation
+
+Pre-charge is the dominant VCC_R load, not dot current:
+
+```
+I_prechg ≈ (VCC_R − PRE_V − OLED_Vf) / R_internal × N_columns × duty_cycle
+         ≈ (9V − 2.4V − 4V) / 400Ω × 384 × ~5.4%
+         ≈ ~130mA average
+```
+
+This alone exceeds the 20mA limit. Correct current limit: **150mA**.
+
+At 25µA dot current (9.6mA average), pixel emission is likely below visual threshold.
+Raised to 255µA (0xFF) dot and 1008µA (0x3F) peak for a definitive visibility test.
+
+---
+
+## Session 7 — Maximum Current Settings: Lower Current Than Minimum Settings
+
+### Setup
+
+- VCC_R = 9V, 500mA limit.
+- DotCurrent: 255µA per channel (`0x0F, 0x0F` × 6).
+- PeakCurrent: 1008µA per channel (`0x3F` × 3).
+- Keypress pause inserted before Display ON.
+
+### Result
+
+| Measurement | Value |
+|-------------|-------|
+| VCC_R current before Display ON | ~0mA |
+| VCC_R current after Display ON | 124–129mA, settling 126mA |
+
+**Current at maximum settings (126mA) was lower than at minimum settings (136mA).**
+This is physically impossible if `0x0E` writes are landing. Higher dot current must
+increase VCC_R current. The dot current register is at 0µA default throughout all runs.
+
+The 0mA before Display ON confirms all prior init commands (0x01, 0x03, 0x30, 0x08,
+0x02, 0x04, 0x07, 0x05, 0x06) are landing correctly — oscillator, standby exit, and
+scan configuration all working. The fault is specifically in multi-parameter commands.
+
+---
+
+## Session 8 — Root Cause Confirmed: CSB Protocol Violation
+
+### Analysis
+
+The LD7138 serial write timing diagram (datasheet §4.3, p.12) shows CSB remaining LOW
+continuously through the command byte AND all parameter bytes. A0 transitions between
+command and data while CSB remains asserted. `Tcsbh` (30ns minimum) is the
+inter-transaction gap between complete sequences, not a permitted intra-transaction pulse.
+
+When spidev deasserts CSB after the command byte, the IC's internal SCL counter resets.
+Each subsequent parameter byte is silently discarded. Single-parameter commands appear
+to work because the IC tolerates one CSB pulse within a single-parameter transaction.
+
+**Effect on each multi-parameter command:**
+
+| Register | Params | Effect of CSB violation |
+|----------|--------|------------------------|
+| `0x0Eh` DotCurrent | 6 | Only param 1 lands; params 2–6 lost → effective 0µA |
+| `0x0Fh` PeakCurrent | 3 | Only param 1 lands; params 2–3 lost → effective 0µA |
+| `0x07h` DispSize | 8 | Only param 1 lands; Y scan range incorrect |
+| `0x0Ah` MBoxSize | 8 | Only param 1 lands; GRAM window undefined |
+
+Zero dot current = zero light emission. This is the single root cause of every dark
+display result across all sessions.
+
+### Suggested Fix — SPI_NO_CS Mode
+
+Full bitbang is not a valid path per previous sessions. The correct solution:
+
+1. Open spidev with `SPI_NO_CS` flag — kernel stops touching CE0 automatically.
+2. Add BCM 8 (CSB) to libgpiod line management.
+3. Implement transaction-aware wrappers holding CSB low across all bytes:
+
+```c
+static void tx_begin(uint8_t cmd)  // CSB↓, A0↓, send cmd
+static void tx_param(uint8_t b)   // A0↑ (CSB still LOW), send param
+static void tx_end(void)          // CSB↑
+
+// Example — multi-param command:
+tx_begin(0x0E);
+tx_param(0x06); tx_param(0x04);  /* Red   */
+tx_param(0x06); tx_param(0x04);  /* Green */
+tx_param(0x06); tx_param(0x04);  /* Blue  */
+tx_end();
+```
+
+Verify BCM 8 can be controlled via libgpiod while spidev holds it open with SPI_NO_CS.
+If not, reassign CSB to an unused GPIO and rewire that one breadboard wire.
+
+---
+
+## Session 9 — Floating VCC_R Confirms Row Scanning Active
+
+### Test
+
+Ran code with VCC_R bench supply disconnected.
+
+### Result
+
+- Before Display ON: VCC_R ~0V (capacitor discharge).
+- After Display ON: VCC_R **settled at 3.45V and held steady**.
+
+### Interpretation
+
+Row driver switching is charging the VCC_R capacitor through OLED pixels via parasitic
+paths until equilibrium at 3.45V. This independently confirms row scanning is genuinely
+active after Display ON. The display is not dark due to lack of row activity — it is dark
+exclusively because DotCurrent and PeakCurrent are at 0µA default due to the CSB
+protocol violation preventing multi-parameter writes from landing.
+
+---
+
+## Hardware Changes This Session
+
+| Change | wiring.md Rev | Status |
+|--------|---------------|--------|
+| VDD (pin 3) connected to 3.3V via jumper to pin 4 | Rev 0.5 | Done |
+| PRE pin (12) Zener clamp installed (cathode to pin, anode to GND, Vz ≈ 2.4V) | Rev 0.4 | Done |
+| Power sequencing enforced: GND → 3.3V → VCC_C → VCC_R → code, ≥1s delays | Operational | Done |
+| VCC_R current limit raised from 20mA to 150mA | Rev 0.5 | Done |
+
+---
+
+## Open Items
+
+| # | Item | Priority | Status |
+|:---:|---|:---:|:---:|
+| 1 | Implement SPI_NO_CS + GPIO CSB management to fix multi-param write failure | **Immediate** | Pending |
+| 2 | Verify BCM 8 available via libgpiod while spidev open with SPI_NO_CS; if not, rewire CSB to unused GPIO | **Immediate** | Pending |
+| 3 | After fix: confirm DotCurrent/PeakCurrent land (VCC_R current should rise above 130mA pre-charge baseline at full current settings) | After fix | Pending |
+| 4 | After fix: confirm display produces visible output at moderate current (100µA dot, 256µA peak) | After fix | Pending |
+| 5 | Determine correct 64-row subset (rows 0–63 or 64–127) for this panel | After display responds | Pending |
+| 6 | Transition VCC_R from bench supply to internal regulator (`0x30h` = `0x14`, VCC_C ≥ 12.3V) | After bring-up confirmed | Pending |
+| 7 | Formal KiCad schematic | Planned | Pending |

@@ -174,7 +174,7 @@ static void ld7138_init(void)
      * D[2:0]=100: VCC_R = VCC_C x 0.65 (e.g. 16V x 0.65 = 10.4V)
      */
     write_cmd(0x30);
-    write_data_byte(0x14);   /* EN=1 (bit4), D[2:0]=100 (bit2): VCC_R = VCC_C x 0.65 */
+    write_data_byte(0x04);   /* EN=0 (bit4), D[2:0]=100 (bit2): VCC_R = VCC_C x 0.65 (externally supplied) */
     sleep_ms(50);            /* allow VCC_R to ramp to operating voltage before proceeding */
 
     /*
@@ -257,13 +257,30 @@ static void ld7138_init(void)
      *
      * Range: 0x00 (0 uA) to 0xFF (255 uA), 1 uA per step.
      */
-    write_cmd(0x0E);
-    write_data_byte(0x06);   /* IR[7:4] high nibble: Red   */
-    write_data_byte(0x04);   /* IR[3:0] low  nibble: Red   */
-    write_data_byte(0x06);   /* IG[7:4] high nibble: Green */
-    write_data_byte(0x04);   /* IG[3:0] low  nibble: Green */
-    write_data_byte(0x06);   /* IB[7:4] high nibble: Blue  */
-    write_data_byte(0x04);   /* IB[3:0] low  nibble: Blue  */
+    // write_cmd(0x0E);
+    // write_data_byte(0x06);   /* IR[7:4] high nibble: Red   */
+    // write_data_byte(0x04);   /* IR[3:0] low  nibble: Red   */
+    // write_data_byte(0x06);   /* IG[7:4] high nibble: Green */
+    // write_data_byte(0x04);   /* IG[3:0] low  nibble: Green */
+    // write_data_byte(0x06);   /* IB[7:4] high nibble: Blue  */
+    // write_data_byte(0x04);   /* IB[3:0] low  nibble: Blue  */
+    // 25uA = 0x19 -> high nibble 0x1, low nibble 0x9
+// write_cmd(0x0E);
+// write_data_byte(0x01);   /* IR[7:4] Red   */
+// write_data_byte(0x09);   /* IR[3:0] Red   */
+// write_data_byte(0x01);   /* IG[7:4] Green */
+// write_data_byte(0x09);   /* IG[3:0] Green */
+// write_data_byte(0x01);   /* IB[7:4] Blue  */
+// write_data_byte(0x09);   /* IB[3:0] Blue  */
+
+// 255uA = 0xFF -> high nibble 0xF, low nibble 0xF
+write_cmd(0x0E);
+write_data_byte(0x0F);   /* IR[7:4] Red   */
+write_data_byte(0x0F);   /* IR[3:0] Red   */
+write_data_byte(0x0F);   /* IG[7:4] Green */
+write_data_byte(0x0F);   /* IG[3:0] Green */
+write_data_byte(0x0F);   /* IB[7:4] Blue  */
+write_data_byte(0x0F);   /* IB[3:0] Blue  */
 
     /*
      * (11) Set Dot Matrix Peak Current Level: 0x0Fh  *** CRITICAL ***
@@ -274,16 +291,31 @@ static void ld7138_init(void)
      * Setting R/G/B to 0x10 = 16 steps x 16 uA = 256 uA — moderate for bring-up.
      * Range: 0x00 (0 uA) to 0x3F (1008 uA), 16 uA per step.
      */
-    write_cmd(0x0F);
-    write_data_byte(0x10);   /* PR[5:0] = 256 uA peak for Red   */
-    write_data_byte(0x10);   /* PG[5:0] = 256 uA peak for Green */
-    write_data_byte(0x10);   /* PB[5:0] = 256 uA peak for Blue  */
+    // write_cmd(0x0F);
+    // write_data_byte(0x10);   /* PR[5:0] = 256 uA peak for Red   */
+    // write_data_byte(0x10);   /* PG[5:0] = 256 uA peak for Green */
+    // write_data_byte(0x10);   /* PB[5:0] = 256 uA peak for Blue  */
+    // Peak: 0x04 = 4 steps x 16uA = 64uA
+// write_cmd(0x0F);
+// write_data_byte(0x04);   /* Red   */
+// write_data_byte(0x04);   /* Green */
+// write_data_byte(0x04);   /* Blue  */
+
+// Peak: 0x3F = 63 steps x 16uA = 1008uA maximum
+write_cmd(0x0F);
+write_data_byte(0x3F);   /* Red   */
+write_data_byte(0x3F);   /* Green */
+write_data_byte(0x3F);   /* Blue  */
 
     /*
      * (12) Display ON: 0x02h, param 0x01
      * P0=1: turns on dot matrix display.
      * Must come after current levels are set.
      */
+printf("  About to send Display ON -- check VCC_R current now.\n");
+printf("  Press ENTER to continue...\n");
+fflush(stdout);
+getchar();
     write_cmd(0x02);
     write_data_byte(0x01);   /* P0=1: display on */
 
