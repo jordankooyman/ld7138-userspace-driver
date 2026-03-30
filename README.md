@@ -1,12 +1,12 @@
-# LD7138 OLED Display Bring-Up: Final Diagnostic Report (Revised v2)
+# LD7138 OLED Display Bring-Up: Final Diagnostic Report
 
-**Status:** ❌ **NOT FUNCTIONAL** — Display never produced visible output
+**Status:** **NOT FUNCTIONAL** — Display never produced visible output
 
-**Project:** ECEN 5713 Advanced Embedded Software Development — Final Project
-
-**Date:** March 27, 2026
+**Project:** Part of ECEN 5713 Advanced Embedded Software Development — Final Project
 
 **Author:** Jordan Kooyman
+
+![Transparent OLED Display Used](docs/Transparent%20OLED%20Display%20Module.jpg)
 
 ---
 
@@ -45,7 +45,7 @@ Despite the display never lighting, significant work was completed that provides
 ### 1. Hardware Wiring Documentation (Complete)
 - Full pin mapping between Raspberry Pi 4B and LD7138 15-pin ribbon cable (see [`docs/wiring.md`](docs/wiring.md) in the repository)
     - This is the best attempt at the circuit design based on the very limited available information and my own personal knowledge. It is likely that this circuit may have some small issues in it, leading to some of the issues observed in this testing.
-    - A textual description of the circuit is included in [`docs/wiring.md`](docs/wiring.md), and a sketch of the schematic can be found in [`docs/LD7138_schematic_sketch.jpg`](docs/LD7138_schematic_sketch.jpg) in the repository. 
+    - A textual description of the circuit is included in [`docs/wiring.md`](docs/wiring.md), and a sketch of the schematic can be found in [`docs/LD7138 Display Circuit Interface Sketch.jpg`](docs/LD7138%20Display%20Circuit%20Interface%20Sketch.jpg) in the repository. 
     - The least certain parts of the circuit are the power supplies, particularly VCC_C and VCC_R. Testing started with using the internal regulator for VCC_R, but later transitioned to an external supply with the internal regulator disabled to limit potential IC damage while attempting to resolve configuration issues with current limiting the supply. Proper regression testing has not been conducted to confirm that VCC_R cannot be supplied from the internal regulator, which may represent a good starting point for future work resuming this project.
 - Power supply configuration: MT3608 boost converter for VCC_C (10–15V), bench supply for VCC_R (9V, 150mA)
 - Zener diode clamp circuit for PRE pin (2.4V clamp, cathode to pin 12, anode to GND) — installed and operational near end of testing sequence
@@ -83,6 +83,12 @@ Despite the display never lighting, significant work was completed that provides
 - Verified that single-parameter commands (`0x01`, `0x03`, `0x02`, etc.) work correctly
 - Confirmed row scanning is active (VCC_R self-charges to 3.45V with supply disconnected, indicating pixel current paths)
 - Concluded that DotCurrent and PeakCurrent remain at **0 µA** default, making light emission impossible
+
+---
+
+## Final Test Circuit
+
+![Full Test Circuit](docs/Full%20Test%20Circuit.jpg)
 
 ---
 
