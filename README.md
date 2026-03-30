@@ -22,7 +22,9 @@ This document serves as a comprehensive diagnostic record for future work, docum
 
 All detailed debugging logs, including the complete AI chat transcripts used throughout this process, are available in [`docs/debug_log.md`](docs/debug_log.md) in the repository.
 
-Much of the debugging work was done with much AI assistance in order to significantly speed the process up. This results in this summary, based on the AI chat logs found in [`docs/debug_log.md`](docs/debug_log.md), making strong assertions that are not fully verified (e.g., the CSB root cause) but are the conclusions that the AI tool made with confidence from the available evidence. The AI tools were instrumental in guiding the investigation, interpreting datasheet sections, and suggesting next steps. The author made suggestions and frequently attempted to validate certain AI claims, but due to limited time, leaned heavily on the AI for accuracy based on the provided documentation that would take many hours to fully verify manually. The AI's conclusions are presented here as the most likely explanations based on the evidence, but they should be treated as hypotheses rather than confirmed facts until verified with additional testing (e.g., logic analyzer captures of the SPI signals), **despite the confidence they are stated with**.
+Much of the debugging work was done with much AI assistance in order to significantly speed the process up. This results in this summary, based on the AI chat logs found in [`docs/debug_log.md`](docs/debug_log.md), making strong assertions that are not fully verified (e.g., the CSB root cause) but are the conclusions that the AI tool made with confidence from the available evidence. The AI tools were instrumental in guiding the investigation, interpreting datasheet sections, and suggesting next steps. The author made suggestions and frequently attempted to validate certain AI claims, but due to limited time, leaned heavily on the AI for accuracy based on the provided documentation that would take many hours to fully verify manually.
+
+**The AI's conclusions are presented here as the most likely explanations based on the evidence, but they should be treated as hypotheses rather than confirmed facts until verified with additional testing (e.g., logic analyzer captures of the SPI signals), despite the confidence they are stated with**.
 
 ---
 
@@ -78,8 +80,8 @@ Despite the display never lighting, significant work was completed that provides
 - ZIF connector resistance measurements to rule out contact faults
 - Power-on resistance checks confirming panel electrical health
 
-### 4. Root Cause Identification (Complete)
-- Determined that `spidev`'s CSB behavior is incompatible with LD7138's multi-parameter command protocol
+### 4. Theorized Root Cause Identification (Complete)
+- Determined that `spidev`'s CSB behavior is incompatible with LD7138's multi-parameter command protocol - unverified against the datasheet
 - Verified that single-parameter commands (`0x01`, `0x03`, `0x02`, etc.) work correctly
 - Confirmed row scanning is active (VCC_R self-charges to 3.45V with supply disconnected, indicating pixel current paths)
 - Concluded that DotCurrent and PeakCurrent remain at **0 µA** default, making light emission impossible
