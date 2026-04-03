@@ -2,7 +2,7 @@
 
 **Status:** **NOT FUNCTIONAL** — Display never produced visible output
 
-**Project:** Part of ECEN 5713 Advanced Embedded Software Development — Final Project
+**Project:** Part of ECEN 5713 Advanced Embedded Software Development — [Final Project](https://github.com/cu-ecen-aeld/final-project-jordankooyman)
 
 **Author:** Jordan Kooyman
 
